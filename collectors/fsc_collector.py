@@ -9,36 +9,54 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class FSCCollector:
-    """金管會新聞稿採集器"""
-    # 更換為更穩定的 RSS 端點 (參考技術手冊)
-    RSS_URL = "https://www.fsc.gov.tw/ch/news/rss.aspx"
+    """金管會新聞稿採集器 (HTML 爬取版)"""
+    # 直接爬取新聞列表網頁，避免 RSS 轉向問題
+    LIST_URL = "https://www.fsc.gov.tw/ch/home.jsp?id=2&parentpath=0"
+    BASE_URL = "https://www.fsc.gov.tw"
 
     async def fetch_rss_entries(self) -> List[Dict[str, Any]]:
-        """獲取 RSS 列表 (加入 User-Agent 偽裝)"""
-        logger.info(f"正在從 {self.RSS_URL} 獲取 RSS 列表...")
+        """獲取新聞列表 (改為解析 HTML)"""
+        logger.info(f"正在從 {self.LIST_URL} 爬取新聞列表...")
         
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                # 偽裝成一般瀏覽器，避免被擋
                 headers = {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 }
-                response = await client.get(self.RSS_URL, headers=headers, follow_redirects=True)
+                response = await client.get(self.LIST_URL, headers=headers, follow_redirects=True)
                 response.raise_for_status()
                 
-                # 使用 feedparser 解析抓回來的內容
-                feed = feedparser.parse(response.text)
+                soup = BeautifulSoup(response.text, 'html.parser')
                 entries = []
-                for entry in feed.entries:
+                
+                # 尋找新聞列表區域 (通常在 .news_list 或 table 內)
+                # 根據金管會結構，尋找帶有標題的 <a> 標籤
+                links = soup.select('.news_list a, .page_content a[title], .list_table a')
+                
+                for link in links:
+                    title = link.get('title') or link.text.strip()
+                    href = link.get('href')
+                    
+                    if not href or 'jsp?id=' not in href:
+                        continue
+                        
+                    # 處理相對路徑
+                    full_url = href if href.startswith('http') else f"{self.BASE_URL}/ch/{href}"
+                    
+                    # 避免抓到重複的連結
+                    if any(e['url'] == full_url for e in entries):
+                        continue
+                        
                     entries.append({
-                        "title": entry.title,
-                        "url": entry.link,
-                        "published_date": entry.published if hasattr(entry, 'published') else None,
+                        "title": title,
+                        "url": full_url,
+                        "published_date": datetime.now().strftime("%Y-%m-%d"), # 列表若無日期則填今日
                     })
-                logger.info(f"成功獲取到 {len(entries)} 條新聞項目。")
+                
+                logger.info(f"成功爬取到 {len(entries)} 條新聞項目。")
                 return entries
             except Exception as e:
-                logger.error(f"獲取 RSS 列表失敗: {e}")
+                logger.error(f"爬取新聞列表失敗: {e}")
                 return []
 
     async def fetch_full_content(self, url: str) -> str:
