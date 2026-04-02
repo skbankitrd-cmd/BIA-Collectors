@@ -10,29 +10,30 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 class LLMProcessor:
-    """AI 分析層：使用 Gemini 1.5 Pro 進行處理"""
+    """AI 分析層：使用 Gemini 2.0 Flash Lite 進行處理 (免費額度 RPD=500)"""
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("未設置 GEMINI_API_KEY 環境變數")
         
         genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-pro-latest')
+        # 更新為 2.0 Flash Lite 以確保每日有足夠的免費額度 (500 RPD)
+        self.model = genai.GenerativeModel('gemini-2.0-flash-lite-preview-02-05')
         self.embed_model = "models/text-embedding-004"
 
     async def analyze_news(self, title: str, content: str) -> Dict[str, Any]:
         """分析新聞內容並生成結構化數據"""
         prompt = f"""
-        你是一位台灣頂尖銀行的戰略顧問。請針對以下新聞內容進行深度分析，並提供給銀行高階主管。
+        你是一位頂尖金融戰略顧問。請針對以下新聞內容進行深度分析，並提供給銀行高階主管。
         
         新聞標題：{title}
         新聞內文：
-        {content[:3000]}  # 限制長度以符合 Token 限制
+        {content[:3000]}
         
         請以 JSON 格式回傳以下欄位：
         1. summary: 約 150 字的摘要，需聚焦於對金融業的影響與決策建議。
         2. category: 分類，僅限於 ['法規遵循', '總體經濟', '同業動態', '資安風險', '金融科技', 'ESG'] 其中之一。
-        3. importance_score: 整數 1-10，代表對銀行決策的重要性。
+        3. importance_score: 整數 1-10，代表對決策的重要性。
         4. target_roles: 陣列，適合閱讀此內容的角色名稱。可選值：['董事長', '法遵長', '資訊長', '營運長', '風險長']。
         
         請僅回傳 JSON，不要有額外描述。
