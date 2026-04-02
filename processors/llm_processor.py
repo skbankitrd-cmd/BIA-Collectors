@@ -45,6 +45,10 @@ class LLMProcessor:
            - 涉及處分或法規：必選 '法遵長'、'董事長'。
            - 涉及技術或系統：必選 '資訊長'。
            - 涉及獲利或策略：必選 '董事長'、'營運長'。
+        5. sentiment_score: 整數 -5 到 5。-5 代表極度負面（如重罰、危機），5 代表極度正面（如放寬限制、獲利），0 為中性。
+        6. entities: JSON 陣列，擷取重要實體（機構、人物、數據、風險）。格式：[{{"type": "org|person|event|figure|risk", "name": "實體名稱", "context": "說明"}}]。
+        7. tags: 字串陣列，給予 2-4 個關鍵字標籤（如 ["法規", "資安", "裁罰"]）。
+        8. ai_summary: 100字以內的極短口語摘要，語氣需像秘書向主管口頭報告。
 
         請僅回傳 JSON 格式，嚴禁任何 Markdown 標記或額外文字說明。
         """
@@ -61,7 +65,11 @@ class LLMProcessor:
                 "summary": "AI 分析失敗，請查閱原始內文。",
                 "category": "未分類",
                 "importance_score": 5,
-                "target_roles": []
+                "target_roles": [],
+                "sentiment_score": 0,
+                "entities": [],
+                "tags": [],
+                "ai_summary": "抱歉，報告生成失敗，請稍後重試。"
             }
 
     async def generate_embedding(self, text: str) -> List[float]:

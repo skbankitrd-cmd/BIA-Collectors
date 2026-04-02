@@ -1,5 +1,6 @@
 import os
 import logging
+import hashlib
 from typing import List, Dict, Any
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -32,12 +33,17 @@ class SupabaseDB:
     def insert_intelligence(self, data: Dict[str, Any]):
         """將分析後的資料寫入資料庫"""
         try:
+            # 計算去重金鑰
+            raw_key = data.get("title", "") + data.get("url", "")
+            dedup_key = hashlib.md5(raw_key.encode('utf-8')).hexdigest()
+
             # 轉換角色名稱為 UUID
             role_map = self.get_role_mapping()
             target_roles_uuids = [role_map.get(role) for role in data.get("target_roles", []) if role in role_map]
             
             # 準備插入資料
             payload = {
+                "dedup_key": dedup_key,
                 "source_name": data["source_name"],
                 "source_url": data["url"],
                 "title": data["title"],
@@ -47,7 +53,11 @@ class SupabaseDB:
                 "category": data["category"],
                 "importance_score": data["importance_score"],
                 "target_roles": target_roles_uuids,
-                "embedding": data["embedding"]
+                "embedding": data["embedding"],
+                "sentiment_score": data.get("sentiment_score"),
+                "entities": data.get("entities", []),
+                "tags": data.get("tags", []),
+                "ai_summary": data.get("ai_summary", "")
             }
             
             result = self.client.table("intelligence_feed").insert(payload).execute()
