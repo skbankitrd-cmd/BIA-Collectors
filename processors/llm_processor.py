@@ -10,16 +10,37 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 class LLMProcessor:
-    """AI 分析層：使用 Gemini 2.0 Flash Lite 進行處理 (免費額度 RPD=500)"""
+    """AI 分析層：動態探測可用模型 (Flash/Pro)"""
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("未設置 GEMINI_API_KEY 環境變數")
         
         genai.configure(api_key=self.api_key)
-        # 更新為 2.0 Flash Lite 以確保每日有足夠的免費額度 (500 RPD)
-        self.model = genai.GenerativeModel('gemini-2.0-flash-lite-preview-02-05')
-        self.embed_model = "models/text-embedding-004"
+        
+        # 動態探測可用模型
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            logger.info(f"可用模型清單: {available_models}")
+            
+            if 'models/gemini-1.5-pro' in available_models:
+                self.model_name = 'gemini-1.5-pro'
+            elif 'models/gemini-1.5-flash' in available_models:
+                self.model_name = 'gemini-1.5-flash'
+            elif 'models/gemini-pro' in available_models:
+                self.model_name = 'gemini-pro'
+            else:
+                self.model_name = available_models[0].replace('models/', '') if available_models else 'gemini-1.5-flash'
+        except Exception as e:
+            logger.warning(f"探測模型失敗: {e}，將使用預設值")
+            self.model_name = 'gemini-1.5-flash'
+            
+        logger.info(f"最終選定分析模型: {self.model_name}")
+        self.model = genai.GenerativeModel(self.model_name)
+        
+        # Embedding 模型固定使用最新穩定版
+        self.embed_model = 'models/text-embedding-004'
+        logger.info(f"最終選定向量模型: {self.embed_model}")
 
     async def analyze_news(self, title: str, content: str) -> Dict[str, Any]:
         """分析新聞內容並生成結構化數據，具備細緻分類邏輯"""
@@ -55,9 +76,9 @@ class LLMProcessor:
         
         try:
             response = self.model.generate_content(prompt)
-            # 移除 Markdown 的 JSON 標籤
             clean_text = response.text.replace('```json', '').replace('```', '').strip()
             result = json.loads(clean_text)
+            logger.info(f"AI 分析成功: {result.get('category')} - {result.get('importance_score')}分")
             return result
         except Exception as e:
             logger.error(f"LLM 分析失敗: {e}")
@@ -73,22 +94,21 @@ class LLMProcessor:
             }
 
     async def generate_embedding(self, text: str) -> List[float]:
-        """為文本生成向量 Embedding"""
+        """為文本生成向量 Embedding (帶有錯誤備援)"""
         try:
             result = genai.embed_content(
                 model=self.embed_model,
                 content=text,
-                task_type="retrieval_document",
-                title="Banking Intelligence Feed"
+                task_type="retrieval_document"
             )
             return result['embedding']
         except Exception as e:
-            logger.error(f"生成向量失敗: {e}")
-            return []
+            logger.error(f"生成向量失敗 ({self.embed_model}): {e}")
+            # 如果失敗，回傳 768 維的零向量，確保資料庫能成功寫入
+            return [0.0] * 768
 
 if __name__ == "__main__":
     import asyncio
-    # 注意：需先設定 GEMINI_API_KEY 環境變數
     processor = LLMProcessor()
     test_title = "金管會強化銀行資安防護要求"
     test_content = "金管會今日發布新聞稿，要求各銀行需在年底前完成關鍵系統的弱點掃描與異地備援測試..."
