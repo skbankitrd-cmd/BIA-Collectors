@@ -29,30 +29,62 @@ class FSCCollector:
                 soup = BeautifulSoup(response.text, 'html.parser')
                 entries = []
                 
-                # 尋找新聞列表區域 (通常在 .news_list 或 table 內)
-                # 根據金管會結構，尋找帶有標題的 <a> 標籤
-                links = soup.select('.news_list a, .page_content a[title], .list_table a')
+                # 金管會新聞列表通常在 class="ptable" 的表格內，或是在特定的 div 中
+                # 嘗試多種可能的選擇器
+                content_area = soup.find('div', id='content') or soup.find('div', class_='page_content')
+                if not content_area:
+                    content_area = soup # fallback 到全頁面
+                
+                links = content_area.select('a[title]')
+                logger.info(f"在內容區域找到 {len(links)} 個帶有 title 的連結。")
                 
                 for link in links:
-                    title = link.get('title') or link.text.strip()
-                    href = link.get('href')
+                    title = link.get('title', '').strip()
+                    href = link.get('href', '').strip()
                     
-                    if not href or 'jsp?id=' not in href:
+                    # 過濾條件：
+                    # 1. 必須包含 home.jsp?id= 或 main.jsp?id=
+                    # 2. 排除掉導覽列常見的標題（如回首頁、網站導覽）
+                    if not href or 'id=' not in href:
                         continue
-                        
+                    
+                    # 排除掉一般的導覽連結
+                    if any(x in title for x in ['回首頁', '網站導覽', 'English', '常見問答', '聯絡我們', '機關介紹', '雙語詞彙', '組織架構', '本會沿革', '影音平台']):
+                        continue
+                    
+                    # 金管會真正的「新聞」連結通常包含 id=2 或 id=17 (公告)
+                    # 且 parentpath 包含 0,2 
+                    if 'parentpath=0,2' not in href and 'id=2&' not in href and 'id=17&' not in href:
+                        continue
+                    
                     # 處理相對路徑
                     full_url = href if href.startswith('http') else f"{self.BASE_URL}/ch/{href}"
                     
-                    # 避免抓到重複的連結
                     if any(e['url'] == full_url for e in entries):
                         continue
                         
                     entries.append({
                         "title": title,
                         "url": full_url,
-                        "published_date": datetime.now().strftime("%Y-%m-%d"), # 列表若無日期則填今日
+                        "published_date": datetime.now().strftime("%Y-%m-%d"),
                     })
                 
+                # 如果還是 0 條，嘗試更寬鬆的 table 搜尋
+                if not entries:
+                    logger.warning("首輪抓取失敗，嘗試從 table 結構搜尋...")
+                    for row in soup.select('table tr'):
+                        a_tag = row.find('a')
+                        if a_tag and a_tag.get('href') and 'id=' in a_tag.get('href'):
+                            title = a_tag.text.strip()
+                            href = a_tag.get('href')
+                            full_url = href if href.startswith('http') else f"{self.BASE_URL}/ch/{href}"
+                            if title and not any(e['url'] == full_url for e in entries):
+                                entries.append({
+                                    "title": title,
+                                    "url": full_url,
+                                    "published_date": datetime.now().strftime("%Y-%m-%d"),
+                                })
+
                 logger.info(f"成功爬取到 {len(entries)} 條新聞項目。")
                 return entries
             except Exception as e:
