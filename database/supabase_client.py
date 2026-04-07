@@ -43,6 +43,7 @@ class SupabaseDB:
     def update_user_preferences(self, role_name: str, preferences: Dict[str, Any]) -> bool:
         """更新指定角色的個性化喜好 (Upsert)"""
         try:
+            from datetime import datetime, timezone
             payload = {"role_name": role_name, **preferences, "updated_at": datetime.now(timezone.utc).isoformat()}
             self.client.table("user_preferences").upsert(payload, on_conflict="role_name").execute()
             logger.info(f"成功更新 {role_name} 的個性化喜好。")
