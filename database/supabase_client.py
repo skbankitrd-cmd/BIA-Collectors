@@ -31,6 +31,26 @@ class SupabaseDB:
         response = self.client.table("user_roles").select("role_id, role_name").execute()
         return {item["role_name"]: item["role_id"] for item in response.data}
 
+    def get_user_preferences(self, role_name: str) -> Dict[str, Any]:
+        """獲取指定角色的個性化喜好"""
+        try:
+            # 假設有一個 user_preferences 資料表，以 role_name 為 key
+            response = self.client.table("user_preferences").select("*").eq("role_name", role_name).execute()
+            return response.data[0] if response.data else {}
+        except Exception:
+            return {}
+
+    def update_user_preferences(self, role_name: str, preferences: Dict[str, Any]) -> bool:
+        """更新指定角色的個性化喜好 (Upsert)"""
+        try:
+            payload = {"role_name": role_name, **preferences, "updated_at": datetime.now(timezone.utc).isoformat()}
+            self.client.table("user_preferences").upsert(payload, on_conflict="role_name").execute()
+            logger.info(f"成功更新 {role_name} 的個性化喜好。")
+            return True
+        except Exception as e:
+            logger.error(f"更新喜好失敗: {e}")
+            return False
+
     def query_intelligence(self, query: str = None, category: str = None, role_name: str = None, limit: int = 5) -> List[Dict[str, Any]]:
         """
         [Agent Skill 專用] 查詢情報資料表 (intel_items)
