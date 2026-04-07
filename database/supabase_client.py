@@ -31,6 +31,47 @@ class SupabaseDB:
         response = self.client.table("user_roles").select("role_id, role_name").execute()
         return {item["role_name"]: item["role_id"] for item in response.data}
 
+    def query_intelligence(self, query: str = None, category: str = None, role_name: str = None, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        [Agent Skill 專用] 查詢情報資料表 (intel_items)
+        支援：
+        1. 關鍵字搜尋 (標題或內容)
+        2. 類別過濾 (category)
+        3. 角色權限過濾 (target_roles 包含 role_id)
+        """
+        try:
+            builder = self.client.table("intel_items").select("title, summary, importance, category, published_at, url, target_roles")
+            
+            # 1. 關鍵字過濾
+            if query:
+                builder = builder.or_(f"title.ilike.%{query}%,content.ilike.%{query}%")
+            
+            # 2. 類別過濾
+            if category:
+                builder = builder.eq("category", category)
+            
+            # 3. 排序與數量
+            builder = builder.order("published_at", desc=True).limit(limit)
+            
+            result = builder.execute()
+            data = result.data
+            
+            # 4. 角色過濾 (Post-processing)
+            if role_name:
+                role_map = self.get_role_mapping()
+                target_role_id = role_map.get(role_name)
+                if target_role_id:
+                    # 過濾出 target_roles 為空 (公開) 或 包含目標角色 ID 的項目
+                    data = [
+                        item for item in data 
+                        if not item.get("target_roles") or target_role_id in item["target_roles"]
+                    ]
+            
+            return data
+        except Exception as e:
+            logger.error(f"查詢 intel_items 失敗: {e}")
+            return []
+
     def insert_intel_item(self, item: Any, embedding: List[float] = None):
         """將 IntelItem 物件寫入資料庫 (完全對齊 Layer 1 規範)"""
         try:

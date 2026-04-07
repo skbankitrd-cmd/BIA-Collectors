@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 from collectors.fsc_collector import FSCCollector
+from collectors.macro_collector import MacroCollector
 from database.supabase_client import SupabaseDB
 from processors.anonymizer import Anonymizer
 from processors.llm_processor import LLMProcessor
@@ -29,6 +30,7 @@ async def run_pipeline():
     # 1. 初始化元件
     db = SupabaseDB()
     fsc_collector = FSCCollector(pipeline_run_id=pipeline_run_id)
+    macro_collector = MacroCollector(pipeline_run_id=pipeline_run_id)
     
     # 嘗試連接 Redis
     r = None
@@ -42,8 +44,13 @@ async def run_pipeline():
         logger.warning("無法連接 Redis，切換為「直接模式」(採集後立即分析)。")
 
     try:
-        # 2. 執行採集
-        intel_items = await fsc_collector.collect_intel(limit=5)
+        # 2. 執行採集 (併發執行多個採集器)
+        fsc_items, macro_items = await asyncio.gather(
+            fsc_collector.collect_intel(limit=5),
+            macro_collector.collect_intel(limit=5)
+        )
+        intel_items = fsc_items + macro_items
+        logger.info(f"採集總數: {len(intel_items)} 筆 (FSC: {len(fsc_items)}, Macro: {len(macro_items)})")
         
         if not use_redis:
             # 模式 A: 直接模式 (無 Redis 時)
