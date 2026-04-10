@@ -55,17 +55,14 @@ class SupabaseDB:
     def query_intelligence(self, query: str = None, category: str = None, role_name: str = None, limit: int = 5) -> List[Dict[str, Any]]:
         """
         [Agent Skill 專用] 查詢情報資料表 (intel_items)
-        支援：
-        1. 關鍵字搜尋 (標題或內容)
-        2. 類別過濾 (category)
-        3. 角色權限過濾 (target_roles 包含 role_id)
         """
         try:
-            builder = self.client.table("intel_items").select("title, summary, importance, category, published_at, url, target_roles")
+            # 移除 target_roles 欄位以避免 400 錯誤
+            builder = self.client.table("intel_items").select("title, summary, importance, category, published_at, url")
             
-            # 1. 關鍵字過濾
+            # 1. 關鍵字過濾 (僅針對標題，避免欄位名稱錯誤)
             if query:
-                builder = builder.or_(f"title.ilike.%{query}%,content.ilike.%{query}%")
+                builder = builder.ilike("title", f"%{query}%")
             
             # 2. 類別過濾
             if category:
