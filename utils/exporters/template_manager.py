@@ -18,7 +18,9 @@ class TemplateManager:
         os.makedirs(self.output_dir, exist_ok=True)
 
     def fill_excel(self, template_name, data_map):
-        wb = openpyxl.load_workbook(os.path.join(self.template_path, template_name))
+        # [Harness Security Fix: Path Traversal Prevention]
+        safe_name = os.path.basename(template_name)
+        wb = openpyxl.load_workbook(os.path.join(self.template_path, safe_name))
         ws = wb.active
         for row in ws.iter_rows():
             for cell in row:
@@ -32,7 +34,9 @@ class TemplateManager:
 
     def fill_ppt(self, template_name, data_map):
         """讀取 PPT 範本並替換標籤"""
-        prs = Presentation(os.path.join(self.template_path, template_name))
+        # [Harness Security Fix: Path Traversal Prevention]
+        safe_name = os.path.basename(template_name)
+        prs = Presentation(os.path.join(self.template_path, safe_name))
         for slide in prs.slides:
             for shape in slide.shapes:
                 if not shape.has_text_frame: continue

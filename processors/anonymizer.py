@@ -4,23 +4,34 @@ from typing import List
 class Anonymizer:
     """去識別化閘道 (Anonymization Gateway)"""
     def __init__(self, custom_keywords: List[str] = None):
-        # 預設敏感詞庫 (銀行代號、虛擬客戶名、機密專案)
-        self.sensitive_patterns = [
-            r'客戶[A-Z]\d+', # 客戶代號如 客戶A123
-            r'專案[X-Z]',    # 專案代號
-            r'秘密專案',
-        ]
-        if custom_keywords:
-            for kw in custom_keywords:
-                self.sensitive_patterns.append(re.escape(kw))
+        # 強化敏感詞庫 (Harness: PII & Financial Data Patterns)
+        self.patterns = {
+            'TAIWAN_ID': r'[A-Z][12]\d{8}',                # 台灣身分證字號
+            'CREDIT_CARD': r'\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}', # 信用卡號
+            'PHONE': r'09\d{2}-?\d{3}-?\d{3}',             # 手機號碼
+            'EMAIL': r'[\w\.-]+@[\w\.-]+\.\w+',            # 電子郵件
+            'ACCOUNT': r'客戶[A-Z]\d+',                     # 銀行客戶代號
+            'PROJECT': r'專案[X-Z]|秘密專案'                 # 機密專案
+        }
         
-        self.combined_pattern = re.compile('|'.join(self.sensitive_patterns))
+        if custom_keywords:
+            self.patterns['CUSTOM'] = '|'.join([re.escape(kw) for kw in custom_keywords])
+        
+        # 建立一個大正則，並使用命名群組以便識別類型 (選擇性，目前統一遮蔽)
+        self.combined_pattern = re.compile('|'.join([f'(?P<{k}>{v})' for k, v in self.patterns.items()]))
 
     def mask_text(self, text: str) -> str:
-        """遮蔽文本中的敏感資訊"""
+        """遮蔽文本中的敏感資訊 (Harness: Context-Aware Masking)"""
         if not text:
             return ""
-        return self.combined_pattern.sub("[REDACTED]", text)
+        
+        def replace_func(match):
+            for name, value in match.groupdict().items():
+                if value:
+                    return f"[REDACTED_{name}]"
+            return "[REDACTED]"
+
+        return self.combined_pattern.sub(replace_func, text)
 
     def is_safe_for_cloud(self, text: str) -> bool:
         """檢查文本是否包含過多敏感資訊，決定是否適合傳送到雲端 LLM"""
