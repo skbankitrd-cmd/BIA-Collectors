@@ -1,75 +1,49 @@
-# BIA-Collectors (Banking Intelligence Agent - Pipeline)
+# 📡 BIA-Collectors (外部情報採集與處理)
 
-This repository hosts the data collection and AI processing pipeline for the Banking Intelligence Agent (BIA) system. It is designed to provide strategic decision support for high-level executives in the financial sector.
+負責自動化抓取外部金融法規、新聞與總體經濟數據，並透過雲端 LLM 進行結構化分析。
 
-## Core Features
-1. **Data Collection:** Automated scraping of financial regulatory news (e.g., FSC) and public financial media.
-2. **Anonymization:** A local rule engine to redact sensitive information before sending data to cloud LLMs, ensuring data sovereignty.
-3. **AI Analysis:** Leverages Gemini 1.5 Pro to generate professional financial summaries, classification, and importance scoring.
-4. **Vectorization:** Generates 768-dimensional embeddings for every feed to support semantic search.
-5. **Storage:** Seamless integration with Supabase (PostgreSQL + pgvector).
+---
 
-## Quick Start
+## 🛠️ 核心功能
 
-### 1. Environment Setup
-Create a `.env` file with the following:
+### 1. 採集器 (Collectors)
+- **FSCCollector**：定期擷取台灣金管會 RSS 指令、法律修正與裁罰公告。
+- **MacroCollector**：監控全球重要財經數據。
+
+### 2. 安全去識別化閘道 (Anonymizer)
+- **PII 攔截**：偵測身分證、信用卡、帳號等敏感資訊。
+- **雲端安全門控**：若文本敏感度過高（Match 數 > 5），自動攔截發送到雲端，改由地端處理。
+
+### 3. AI 分析層 (LLMProcessor)
+- **結構化輸出**：使用 Gemini 1.5 Flash 搭配強制 JSON Schema。
+- **專業分析**：自動生成 150 字戰略摘要、重要性評分 (1-10) 與目標角色建議。
+- **向量化**：使用 `text-embedding-004` (768維) 產出向量存入 Supabase。
+
+---
+
+## 🚀 快速啟動
+
+### 環境配置
+建立 `.env` 檔案：
 ```bash
-GEMINI_API_KEY=your_gemini_api_key
-SUPABASE_URL=your_supabase_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+GEMINI_API_KEY=...
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
-### 2. Install Dependencies
+### 執行管線
 ```bash
 pip install -r requirements.txt
-```
-
-### 3. Initialize Database (Supabase SQL)
-Execute the following in your Supabase SQL Editor:
-
-```sql
--- 1. Enable Vector Extension
-CREATE EXTENSION IF NOT EXISTS vector;
-
--- 2. Create Roles Table
-CREATE TABLE public.user_roles (
-    role_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    role_name VARCHAR(50) UNIQUE NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- 3. Create Intelligence Feed Table
-CREATE TABLE public.intelligence_feed (
-    feed_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    source_name VARCHAR(100) NOT NULL,
-    source_url TEXT UNIQUE NOT NULL,
-    title TEXT NOT NULL,
-    published_date TIMESTAMP WITH TIME ZONE,
-    raw_content TEXT,
-    summary TEXT NOT NULL,
-    category VARCHAR(50),
-    importance_score INTEGER CHECK (importance_score >= 1 AND importance_score <= 10),
-    target_roles UUID[], 
-    embedding VECTOR(768),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- 4. Create Vector Index
-CREATE INDEX ON public.intelligence_feed USING hnsw (embedding vector_cosine_ops);
-```
-
-### 4. Run Pipeline
-```bash
-# Initialize default roles
-python utils/db_init.py
-
-# Execute crawling and AI analysis
 python main.py
 ```
 
-## Automation (GitHub Actions)
-The repository includes a GitHub Actions workflow. Set your environment variables in `Settings > Secrets > Actions` to enable daily automated runs at 00:00 UTC.
+---
+
+## 🏗️ 資料庫規範 (Layer 1 Spec)
+本模組嚴格遵循 `intel_items` 20 個核心欄位規範，支援：
+- **pgvector** 語意檢索。
+- **MD5 去重** 機制。
+- **批次檢查**：優化 N+1 查詢效能。
 
 ---
-**Security Note:** All data sent to cloud LLMs is processed through an anonymization layer to protect privacy.
+**Disclaimer:** All collection activities comply with public data accessibility guidelines.
