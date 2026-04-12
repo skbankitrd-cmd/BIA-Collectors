@@ -35,9 +35,33 @@ class Anonymizer:
 
     def is_safe_for_cloud(self, text: str) -> bool:
         """檢查文本是否包含過多敏感資訊，決定是否適合傳送到雲端 LLM"""
-        # 這裡可以實作更複雜的邏輯，目前簡單返回 True
-        # 第一階段為外部公開新聞，通常是安全的
+        if not text:
+            return True
+        
+        # 統計敏感詞出現次數
+        matches = self.combined_pattern.findall(text)
+        
+        # 建立一個簡單的評分機制
+        score = 0
+        for m in matches:
+            # findall 返回的是 tuple 列表（如果有多個 group）或字串列表
+            # 我們這裡只需要算總數
+            score += 1
+            
+        # 閾值設定：如果一段文字中出現超過 5 個敏感實體，視為不安全
+        if score > 5:
+            return False
+            
         return True
+
+    def get_sensitive_report(self, text: str) -> dict:
+        """產出敏感度分析報告"""
+        matches = self.combined_pattern.finditer(text)
+        report = {}
+        for match in matches:
+            kind = match.lastgroup
+            report[kind] = report.get(kind, 0) + 1
+        return report
 
 if __name__ == "__main__":
     anonymizer = Anonymizer(custom_keywords=["內部機密系統"])

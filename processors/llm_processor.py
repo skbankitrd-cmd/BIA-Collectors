@@ -10,7 +10,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 class LLMProcessor:
-    """AI 分析層：動態探測可用模型 (Flash/Pro)"""
+    """AI 分析層：鎖定 flash 模型並強制 JSON 輸出"""
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
@@ -18,70 +18,48 @@ class LLMProcessor:
         
         genai.configure(api_key=self.api_key)
         
-        # 動態探測可用模型
-        try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            logger.info(f"可用模型清單: {available_models}")
-            
-            if 'models/gemini-1.5-pro' in available_models:
-                self.model_name = 'gemini-1.5-pro'
-            elif 'models/gemini-1.5-flash' in available_models:
-                self.model_name = 'gemini-1.5-flash'
-            elif 'models/gemini-pro' in available_models:
-                self.model_name = 'gemini-pro'
-            else:
-                self.model_name = available_models[0].replace('models/', '') if available_models else 'gemini-1.5-flash'
-        except Exception as e:
-            logger.warning(f"探測模型失敗: {e}，將使用預設值")
-            self.model_name = 'gemini-1.5-flash'
-            
-        logger.info(f"最終選定分析模型: {self.model_name}")
-        self.model = genai.GenerativeModel(self.model_name)
+        # 鎖定模型與結構化輸出規範
+        self.model_name = 'gemini-1.5-flash'
+        self.generation_config = {
+            "temperature": 0.1,
+            "top_p": 0.95,
+            "max_output_tokens": 2048,
+            "response_mime_type": "application/json",
+        }
         
-        # Embedding 模型固定使用最新穩定版
+        self.model = genai.GenerativeModel(
+            model_name=self.model_name,
+            generation_config=self.generation_config
+        )
+        
+        # Embedding 模型固定使用最新穩定版 (維度: 768)
         self.embed_model = 'models/text-embedding-004'
-        logger.info(f"最終選定向量模型: {self.embed_model}")
+        logger.info(f"LLM 處理器初始化完成: {self.model_name} / {self.embed_model}")
 
     async def analyze_news(self, title: str, content: str) -> Dict[str, Any]:
         """分析新聞內容並生成結構化數據，具備細緻分類邏輯"""
         prompt = f"""
-        你是一位專精於台灣金融業的頂尖戰略顧問。請針對以下新聞內容進行深度分析，並提供給銀行高階主管（如董事長、法遵長、資訊長）。
+        你是一位專精於台灣金融業的頂尖戰略顧問。請針對以下新聞內容進行深度分析。
 
         新聞標題：{title}
         新聞內文：
         {content[:3000]}
 
-        請根據以下標準，以 JSON 格式回傳精確分析：
-
-        1. summary: 約 150 字的摘要。需聚焦於「對銀行業的具體影響」與「高階主管的行動建議」。
-        2. category: 精確分類，必須從以下選取最合適的一個：
-           - '法規遵循': 涉及處分、法律條文修正、監理申報、反洗錢等。
-           - '總體經濟': 涉及利率、通膨、貨幣政策、匯率趨勢等。
-           - '資安與韌性': 涉及系統故障、駭客攻擊、資安防護規範、數位韌性。
-           - '市場與同業': 涉及銀行合併、新業務推出、同業競爭態勢、市場變動。
-           - '永續金融': 涉及 ESG、綠色金融、氣候變遷風險、社會責任。
-           - '風險管理': 涉及信用風險、市場風險、流動性管理。
-        3. importance_score: 整數 1-10。10 分代表極度緊急或涉及重大處罰；1 分代表一般性新聞。
-        4. target_roles: 適合閱讀此內容的角色。請根據內容屬性精準選擇，可複選：['董事長', '法遵長', '資訊長', '營運長', '風險長']。
-           - 涉及處分或法規：必選 '法遵長'、'董事長'。
-           - 涉及技術或系統：必選 '資訊長'。
-           - 涉及獲利或策略：必選 '董事長'、'營運長'。
-        5. sentiment_score: 整數 -5 到 5。-5 代表極度負面（如重罰、危機），5 代表極度正面（如放寬限制、獲利），0 為中性。
-        6. entities: JSON 陣列，擷取重要實體（機構、人物、數據、風險）。格式：[{{"type": "org|person|event|figure|risk", "name": "實體名稱", "context": "說明"}}]。
-        7. tags: 字串陣列，給予 2-4 個關鍵字標籤（如 ["法規", "資安", "裁罰"]）。
-        8. ai_summary: 80字以內的精煉摘要。語氣需像『金控戰略秘書』向董事長進行口頭晨報：
-           - 必須以「報告主管/長官」開頭。
-           - 內容直接切入事件對本集團或台灣金融業的實質影響。
-           - 語氣必須沈穩專業，嚴禁任何輕率的助詞。
-
-
-        請僅回傳 JSON 格式，嚴禁任何 Markdown 標記或額外文字說明。
+        請以 JSON 格式回傳以下欄位：
+        - summary (string): 約 150 字的專業分析與建議。
+        - category (string): 必須為 ['法規遵循', '總體經濟', '資安與韌性', '市場與同業', '永續金融', '風險管理'] 其中之一。
+        - importance_score (integer): 1-10。
+        - target_roles (array of strings): 選自 ['董事長', '法遵長', '資訊長', '營運長', '風險長']。
+        - sentiment_score (integer): -5 到 5。
+        - entities (array of objects): [{{ "type": "org|person|event|figure|risk", "name": "...", "context": "..." }}]。
+        - tags (array of strings): 2-4 個關鍵字標籤。
+        - ai_summary (string): 80字以內的精煉摘要，必須以「報告主管」開頭。
         """
         
         try:
+            # 由於我們設定了 response_mime_type: "application/json"，Gemini 會保證回傳 JSON
             response = self.model.generate_content(prompt)
-            clean_text = response.text.replace('```json', '').replace('```', '').strip()
-            result = json.loads(clean_text)
+            result = json.loads(response.text)
             logger.info(f"AI 分析成功: {result.get('category')} - {result.get('importance_score')}分")
             return result
         except Exception as e:
