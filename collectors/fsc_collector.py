@@ -22,17 +22,30 @@ class FSCCollector:
         self.pipeline_run_id = pipeline_run_id or uuid.uuid4()
 
     def _is_safe_url(self, url: str) -> bool:
-        """[Security Fix: SSRF 防禦] 驗證網址是否安全"""
+        """[Security Fix: SSRF 防禦] 驗證網址是否安全 (SEC-010 Fix)"""
         try:
+            import ipaddress
             parsed = urlparse(url)
             # 1. 僅允許 http/https
             if parsed.scheme not in ["http", "https"]: return False
-            # 2. 僅允許受信任域名
-            if parsed.netloc not in self.ALLOWED_DOMAINS:
-                # 額外防護：禁止內網 IP (127.0.0.1, 192.168.x.x, 10.x.x.x, 169.254.x.x)
-                if re.match(r"^(127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|169\.254\.)", parsed.netloc):
+            
+            host = parsed.hostname
+            if not host: return False
+
+            # 2. 僅允許受信任域名 (白名單)
+            if host in self.ALLOWED_DOMAINS:
+                return True
+
+            # 3. 額外防護：禁止直接存取 IP 位址或內網主機
+            try:
+                ip = ipaddress.ip_address(host)
+                if ip.is_private or ip.is_loopback or ip.is_unspecified or ip.is_link_local:
                     return False
-            return True
+            except ValueError:
+                # 不是合法 IP，則可能是未在白名單的網域，同樣拒絕 (預設拒絕模式)
+                pass
+            
+            return False
         except: return False
 
     async def fetch_news_entries(self) -> List[dict]:
