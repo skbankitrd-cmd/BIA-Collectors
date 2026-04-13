@@ -1,10 +1,10 @@
--- BIA 2.0 完整資料庫初始化腳本 (一次性執行)
+-- BIA 2.0 核心資料庫架構 (Layer 1 規範版)
 
--- 1. 啟用必要的擴充功能 (向量搜尋與 UUID)
+-- 1. 擴充功能
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- 2. 建立「使用者角色」表格
+-- 2. 角色表
 CREATE TABLE IF NOT EXISTS public.user_roles (
     role_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     role_name TEXT NOT NULL UNIQUE,
@@ -12,37 +12,43 @@ CREATE TABLE IF NOT EXISTS public.user_roles (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 3. 建立「智慧情報饋送」主表
-CREATE TABLE IF NOT EXISTS public.intelligence_feed (
-    feed_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    dedup_key VARCHAR(255) UNIQUE,          -- 去重金鑰 (MD5)
-    source_name TEXT NOT NULL,              -- 來源 (如: 金管會)
-    source_url TEXT,                        -- 原始網址
-    title TEXT NOT NULL,                    -- 標題
-    published_date TIMESTAMPTZ,             -- 官方發布日期
-    fetched_at TIMESTAMPTZ DEFAULT now(),   -- 系統抓取日期
-    raw_content TEXT,                       -- 原始內文
-    summary TEXT,                           -- AI 生成摘要
-    ai_summary TEXT,                        -- 小秘書語音摘要 (100字內)
-    category TEXT,                          -- 分類 (如: 法規遵循)
-    importance_score SMALLINT,              -- 重要性 (1-10)
-    sentiment_score SMALLINT,               -- 情緒分數 (-5 到 5)
-    entities JSONB DEFAULT '[]'::jsonb,     -- 實體辨識 (NER)
-    tags TEXT[] DEFAULT '{}',               -- 標籤陣列
-    target_roles UUID[],                    -- 目標角色 ID 陣列
-    embedding vector(768),                  -- 向量資料 (Gemini Embedding 768維)
-    is_featured BOOLEAN DEFAULT false       -- 是否入選精選
+-- 3. 情報項目表 (intel_items)
+-- 對齊 IntelItem.to_dict() 欄位
+CREATE TABLE IF NOT EXISTS public.intel_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    source TEXT NOT NULL,
+    title TEXT NOT NULL,
+    category TEXT,
+    summary TEXT,
+    body TEXT,
+    url TEXT,
+    published_at TIMESTAMPTZ,
+    importance SMALLINT DEFAULT 5,
+    target_roles UUID[] DEFAULT '{}', -- 儲存角色 ID 陣列
+    dedup_key TEXT UNIQUE,
+    is_analyzed BOOLEAN DEFAULT false,
+    sentiment_score FLOAT DEFAULT 0.0,
+    tags TEXT[] DEFAULT '{}',
+    entities JSONB DEFAULT '[]'::jsonb,
+    ai_summary TEXT,
+    pipeline_run_id UUID,
+    embedding vector(768), -- 向量支援
+    created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 4. 建立索引以提升搜尋效能
-CREATE INDEX IF NOT EXISTS idx_feed_published_date ON public.intelligence_feed (published_date DESC);
-CREATE INDEX IF NOT EXISTS idx_feed_importance ON public.intelligence_feed (importance_score DESC);
+-- [Security] RLS
+ALTER TABLE public.intel_items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Read Access" ON public.intel_items FOR SELECT USING (true);
 
--- 5. 插入初始角色資料 (這對前端顯示至關重要)
+-- 4. 索引
+CREATE INDEX IF NOT EXISTS idx_intel_published_at ON public.intel_items (published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_intel_importance ON public.intel_items (importance DESC);
+
+-- 5. 初始資料
 INSERT INTO public.user_roles (role_name, description) VALUES
-('董事長', '決策核心，關注總體策略與重大風險'),
-('法遵長', '合規把關，關注金管會裁罰與法規更新'),
-('資訊長', '技術引領，關注資安、金融科技與 AI 發展'),
-('營運長', '業務推動，關注同業動態與市場營運'),
-('風險長', '風險控管，關注信用、市場及營運風險')
+('董事長', '決策核心'),
+('法遵長', '合規把關'),
+('資訊長', '技術引領'),
+('營運長', '業務推動'),
+('風險長', '風險控管')
 ON CONFLICT (role_name) DO NOTHING;

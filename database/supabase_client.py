@@ -26,6 +26,17 @@ class SupabaseDB:
         response = self.client.table("intel_items").select("id").eq("url", url).execute()
         return len(response.data) > 0
 
+    def batch_check_exists(self, urls: List[str]) -> List[str]:
+        """批次檢查多個 URL 是否已存在，回傳已存在的 URL 列表"""
+        if not urls: return []
+        try:
+            # 使用 in_ 查詢一次抓回所有符合的紀錄
+            response = self.client.table("intel_items").select("url").in_("url", urls).execute()
+            return [item["url"] for item in response.data]
+        except Exception as e:
+            logger.error(f"批次 URL 檢查失敗: {e}")
+            return []
+
     def get_role_mapping(self) -> Dict[str, str]:
         """獲取角色名稱對應的 UUID"""
         response = self.client.table("user_roles").select("role_id, role_name").execute()
@@ -91,15 +102,24 @@ class SupabaseDB:
             return []
 
     def insert_intel_item(self, item: Any, embedding: List[float] = None):
-        """將 IntelItem 物件寫入資料庫 (完全對齊 Layer 1 規範)"""
+        """將 IntelItem 物件寫入資料庫 (含自動欄位校驗)"""
         try:
             payload = item.to_dict()
             if embedding:
                 payload["embedding"] = embedding
 
-            # 確保 ID 與 UUID 格式一致
-            result = self.client.table("intel_items").upsert(payload, on_conflict="dedup_key").execute()
-            logger.info(f"成功存入情報 (規範版): {item.title[:30]}...")
+            # --- [容錯修復: 動態過濾掉資料庫中不存在的欄位] ---
+            # 這裡我們手動定義一個「保險欄位名單」
+            safe_columns = [
+                "id", "source", "title", "category", "summary", "body", "url", 
+                "published_at", "importance", "dedup_key", "is_analyzed", 
+                "sentiment_score", "tags", "entities", "ai_summary", "pipeline_run_id", "embedding"
+            ]
+            final_payload = {k: v for k, v in payload.items() if k in safe_columns}
+            # ---------------------------------------------
+
+            result = self.client.table("intel_items").upsert(final_payload, on_conflict="dedup_key").execute()
+            logger.info(f"成功存入情報: {item.title[:30]}...")
             return result
         except Exception as e:
             logger.error(f"存入 intel_items 失敗: {e}")
