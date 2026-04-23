@@ -104,9 +104,14 @@ intel_items (
 - 禁止存取私有 IP 段（127.x / 10.x / 172.16-31.x / 192.168.x）
 
 ### PII 去識別化（Anonymizer — Reviewer 模式）
-- 檢查清單與遮蔽邏輯硬性拆分，確保可獨立更新
-- 覆蓋：台灣身分證字號、信用卡號（PCI DSS）、手機/電話號碼
+- 檢查清單與遮蔽邏輯硬性拆分，確保可獨立更新（`_PATTERNS` / `_PLACEHOLDERS`）
+- 覆蓋 13 類 PII pattern（2026-04-23 合規審查擴充後）：
+  - **基礎**：台灣身分證字號、信用卡號（PCI DSS、ReDoS hardened）、手機（09X-XXX-XXXX）、email、地址片段、客戶 ID
+  - **新增**（合規 MUST M1）：中文姓名（百家姓 + 連接詞啟發式）、銀行帳號（10-14 位）、市話（0X-XXXX-XXXX）、外籍居留證、交易流水號（TXN/TRX）、員工編號（EMP/E）、IPv4/IPv6
+- `is_safe_for_cloud()` 嚴格判定：**任何 PII 命中即 False**（合規硬性要求，禁止放寬）
 - ReDoS 防護：所有正則表達式做複雜度限制，防止 Catastrophic Backtracking
+- 詳細覆蓋度與已知盲區見 [`processors/ANONYMIZER_COVERAGE.md`](./processors/ANONYMIZER_COVERAGE.md)
+- 合規測試：`tests/test_anonymizer_compliance.py`（70 個 case，含倒退防護）
 
 ---
 
